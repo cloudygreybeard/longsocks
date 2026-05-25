@@ -1,0 +1,151 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  images:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Set up ko
+        uses: ko-build/setup-ko@v0.7
+
+      - name: Build and push multi-arch images
+        env:
+          KO_DOCKER_REPO: ghcr.io/cloudygreybeard/longsocks
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          ko build --platform=linux/amd64,linux/arm64 \
+            --bare \
+            --tags="${VERSION},latest" \
+            --image-label="org.opencontainers.image.source=https://github.com/cloudygreybeard/longsocks" \
+            --image-label="org.opencontainers.image.licenses=Apache-2.0" \
+            .
+
+  update-homebrew-tap:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout homebrew-tap
+        uses: actions/checkout@v4
+        with:
+          repository: cloudygreybeard/homebrew-tap
+          ssh-key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+          path: homebrew-tap
+
+      - name: Get release info
+        id: release
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Download and get checksums
+        id: checksums
+        run: |
+          VERSION=${{ steps.release.outputs.version }}
+          
+          # Wait for release assets to be available
+          sleep 10
+          
+          # Download checksums file
+          curl -sL "https://github.com/cloudygreybeard/longsocks/releases/download/v${VERSION}/checksums.txt" -o checksums.txt
+          
+          # Extract SHA256 for each platform
+          echo "darwin_amd64_sha=$(grep "longsocks_${VERSION}_darwin_amd64.tar.gz" checksums.txt | awk '{print $1}')" >> $GITHUB_OUTPUT
+          echo "darwin_arm64_sha=$(grep "longsocks_${VERSION}_darwin_arm64.tar.gz" checksums.txt | awk '{print $1}')" >> $GITHUB_OUTPUT
+          echo "linux_amd64_sha=$(grep "longsocks_${VERSION}_linux_amd64.tar.gz" checksums.txt | awk '{print $1}')" >> $GITHUB_OUTPUT
+          echo "linux_arm64_sha=$(grep "longsocks_${VERSION}_linux_arm64.tar.gz" checksums.txt | awk '{print $1}')" >> $GITHUB_OUTPUT
+
+      - name: Update formula
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          DARWIN_AMD64_SHA: ${{ steps.checksums.outputs.darwin_amd64_sha }}
+          DARWIN_ARM64_SHA: ${{ steps.checksums.outputs.darwin_arm64_sha }}
+          LINUX_AMD64_SHA: ${{ steps.checksums.outputs.linux_amd64_sha }}
+          LINUX_ARM64_SHA: ${{ steps.checksums.outputs.linux_arm64_sha }}
+        run: |
+          cat > homebrew-tap/Formula/longsocks.rb << EOF
+          class Longsocks < Formula
+            desc "A CLI tool"
+            homepage "https://github.com/cloudygreybeard/longsocks"
+            version "${VERSION}"
+            license "Apache-2.0"
+
+            on_macos do
+              on_intel do
+                url "https://github.com/cloudygreybeard/longsocks/releases/download/v#{version}/longsocks_#{version}_darwin_amd64.tar.gz"
+                sha256 "${DARWIN_AMD64_SHA}"
+              end
+              on_arm do
+                url "https://github.com/cloudygreybeard/longsocks/releases/download/v#{version}/longsocks_#{version}_darwin_arm64.tar.gz"
+                sha256 "${DARWIN_ARM64_SHA}"
+              end
+            end
+
+            on_linux do
+              on_intel do
+                url "https://github.com/cloudygreybeard/longsocks/releases/download/v#{version}/longsocks_#{version}_linux_amd64.tar.gz"
+                sha256 "${LINUX_AMD64_SHA}"
+              end
+              on_arm do
+                url "https://github.com/cloudygreybeard/longsocks/releases/download/v#{version}/longsocks_#{version}_linux_arm64.tar.gz"
+                sha256 "${LINUX_ARM64_SHA}"
+              end
+            end
+
+            def install
+              bin.install "longsocks"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/longsocks version")
+            end
+          end
+          EOF
+
+      - name: Commit and push formula
+        run: |
+          cd homebrew-tap
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add Formula/longsocks.rb
+          git commit -m "longsocks: update to v${{ steps.release.outputs.version }}"
+          git push

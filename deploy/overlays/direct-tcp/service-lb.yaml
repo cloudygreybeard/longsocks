@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: longsocks-lb
+  labels:
+    app.kubernetes.io/name: longsocks
+  # Uncomment for Azure/ARO static IP allocation:
+  # annotations:
+  #   service.beta.kubernetes.io/azure-load-balancer-resource-group: "RESOURCE_GROUP"
+  #   service.beta.kubernetes.io/azure-load-balancer-ipv4: "STATIC_IP"
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: longsocks
+  ports:
+    - name: ws
+      port: 8080
+      targetPort: 8080
+      protocol: TCP

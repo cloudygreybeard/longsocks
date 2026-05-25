@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: longsocks
+  labels:
+    app.kubernetes.io/name: longsocks
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: longsocks
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: longsocks
+    spec:
+      serviceAccountName: longsocks
+      containers:
+        - name: longsocks
+          image: ghcr.io/cloudygreybeard/longsocks:latest # pin to a release tag (e.g. :v0.1.0) for anything more than development
+          imagePullPolicy: Always
+          args:
+            - server
+            - --addr
+            - "0.0.0.0:8080"
+            - --tokens-dir
+            - /etc/longsocks/tokens
+          ports:
+            - name: ws
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 16Mi
+            limits:
+              cpu: 500m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tokens
+              mountPath: /etc/longsocks/tokens
+              readOnly: true
+      volumes:
+        - name: tokens
+          secret:
+            secretName: longsocks-tokens

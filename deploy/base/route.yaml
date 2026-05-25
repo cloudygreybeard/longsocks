@@ -1,0 +1,17 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: longsocks
+  annotations:
+    haproxy.router.openshift.io/timeout-tunnel: "24h"
+    haproxy.router.openshift.io/timeout: "30s"
+spec:
+  to:
+    kind: Service
+    name: longsocks
+    weight: 100
+  port:
+    targetPort: ws
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

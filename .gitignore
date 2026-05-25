@@ -1,0 +1,28 @@
+# Build output
+/bin/
+*.exe
+
+# Deployment secrets
+deploy/base/.env.tokens
+
+# Release artifacts
+dist/
+
+# Test artifacts
+*.test
+*.out
+coverage.txt
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Go workspace
+go.work
+go.work.sum
