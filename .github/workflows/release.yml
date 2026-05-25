@@ -35,6 +35,9 @@ jobs:
   images:
     needs: release
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -45,20 +48,16 @@ jobs:
           go-version-file: go.mod
 
       - name: Set up ko
-        uses: ko-build/setup-ko@v0.7
-
-      - name: Login to GHCR
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: echo "${GITHUB_TOKEN}" | ko login ghcr.io --username=${{ github.actor }} --password-stdin
+        uses: ko-build/setup-ko@v0.8
 
       - name: Build and push multi-arch images
         env:
-          KO_DOCKER_REPO: ghcr.io/cloudygreybeard/longsocks
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           ko build --platform=linux/amd64,linux/arm64 \
             --bare \
+            --sbom=none \
             --tags="${VERSION},latest" \
             --image-label="org.opencontainers.image.source=https://github.com/cloudygreybeard/longsocks" \
             --image-label="org.opencontainers.image.licenses=Apache-2.0" \
